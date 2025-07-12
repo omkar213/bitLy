@@ -1,16 +1,52 @@
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import React from "react";
+import React, { useState } from "react";
 
 const LinkShortner = () => {
   const { user, isSignedIn } = useUser();
-
   const router = useRouter();
 
-  const handleSubmit = () => {
-    console.log("redirect");
+  const [longUrl, setLongUrl] = useState("");
+  const [shortUrl, setShortUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async () => {
     if (!user) {
       router.push("/sign-up");
+      return;
+    }
+
+    if (!longUrl) {
+      setError("Please enter a valid URL.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setShortUrl("");
+
+    try {
+      const response = await fetch("/api/shorten", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ longUrl }),
+      });
+
+      const data = await response.json();
+      console.log("data ---", data);
+
+      if (!response.ok) {
+        setError(data.error || "Something went wrong");
+      } else {
+        setShortUrl(data.shortUrl);
+      }
+    } catch (err) {
+      setError("Network error.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -24,6 +60,7 @@ const LinkShortner = () => {
           No credit card required
         </p>
       </div>
+
       <div className="w-full flex flex-col items-start">
         <label
           htmlFor="long-link"
@@ -34,16 +71,27 @@ const LinkShortner = () => {
         <input
           type="text"
           id="long-link"
+          value={longUrl}
+          onChange={(e) => setLongUrl(e.target.value)}
           placeholder="https://example.com/my-long-url"
           className="w-full px-4 py-3 sm:px-5 sm:py-4 border border-gray-200 rounded-xl text-gray-600 placeholder:text-gray-500 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
         />
       </div>
+
+      {error && <p className="text-red-500 text-sm">{error}</p>}
+      {shortUrl && (
+        <p className="text-green-600 break-all text-sm">
+          Your Short Link: <a href={shortUrl}>{shortUrl}</a>
+        </p>
+      )}
+
       <button
         type="submit"
         onClick={handleSubmit}
+        disabled={loading}
         className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 cursor-pointer transition text-white font-bold py-3 sm:py-4 px-6 rounded-2xl text-sm sm:text-base flex justify-center items-center gap-2"
       >
-        Get your link for free
+        {loading ? "Generating..." : "Get your link for free"}
       </button>
     </div>
   );

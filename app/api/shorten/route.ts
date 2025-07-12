@@ -1,41 +1,55 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
-import prisma from "@/lib/prisma";
-import { generateSlug } from "@/app/util/generateSlug";
+import { NextResponse } from "next/server";
+import { PrismaClient } from "@prisma/client";
+import { nanoid } from "nanoid";
+import { getAuth } from "@clerk/nextjs/server";
 
-export async function POST(req: NextRequest) {
-  const { userId } = auth();
+const prisma = new PrismaClient();
 
-  if (!userId) {
+export async function POST(req: Request) {
+  const { userId: clerkUserId } = getAuth(req);
+
+  if (!clerkUserId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await req.json();
+  const existingUser = await prisma.user.findUnique({
+    where: { clerkId: clerkUserId },
+  });
 
+  if (!existingUser) {
+    return NextResponse.json(
+      { error: "User not found in database" },
+      { status: 404 }
+    );
+  }
+
+  const body = await req.json();
   const { longUrl } = body;
 
-  const decodedUrl = decodeURIComponent(longUrl);
-
-  if (!decodedUrl || !decodedUrl.startsWith("http")) {
+  if (!longUrl || !longUrl.startsWith("http")) {
     return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
   }
 
-  let slug = generateSlug();
-  let existing = await prisma.shortLink.findUnique({ where: { slug } });
+  const shortCode = nanoid(6);
 
-  while (existing) {
-    slug = generateSlug();
-    existing = await prisma.shortLink.findUnique({ where: { slug } });
+  try {
+    const shortLink = await prisma.shortLink.create({
+      data: {
+        originalUrl: longUrl,
+        shortCode,
+        userId: existingUser.id,
+      },
+    });
+
+    console.log(shortLink);
+
+    const shortUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/${shortCode}`;
+    return NextResponse.json({ shortUrl, shortCode }, { status: 201 });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json(
+      { error: "Something went wrong" },
+      { status: 500 }
+    );
   }
-
-  await prisma.shortLink.create({
-    data: {
-      originalUrl: decodedUrl, 
-      slug,
-      user: { connect: { clerkId: userId } },
-    },
-  });
-
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-  return NextResponse.json({ shortUrl: `${baseUrl}/${slug}` });
 }
